@@ -1,47 +1,70 @@
 import { useNavigate } from "react-router-dom";
-import { api } from "../libs/axios";
-import { getItem, removeItem, setItem } from "../libs/localStorage";
-import { prettyAxios } from "../utils/promise";
+import { removeItem, getItem, setItem } from "../../libs/localStorage";
+import { prettyAxios } from "../../utils/promise";
+import { api } from "../../libs/axios";
 import { useEffect, useState } from "react";
-import { getUserCorrectAnswerCount } from "../utils/session";
+import { getUserCorrectAnswerCount } from "../../utils/session";
 
-export default function PlayPage() {
-    const [session, setSession] = useState(getItem("session"));
-    const user = getItem("user");
+export default function AdminPlayPage() {
+    const [session, setSession] = useState(getItem("adminSession"));
 
     const navigate = useNavigate();
 
-    const handleLeaveRoomClick = async (e) => {
+    const handleDeleteRoomClick = async (e) => {
         e.preventDefault();
 
-        if (!confirm("คุณต้องการจะออกจากห้องนี้จริงๆ หรือไม่?")) {
+        if (!confirm("คุณต้องการจะลบห้องนี้จริงๆ หรือไม่?")) {
             return;
         }
 
-        await prettyAxios(api.post(`/sessions/leave/${session.id}/${user.id}`));
+        await prettyAxios(api.delete(`/sessions/${session.id}`));
 
-        removeItem("session");
-        removeItem("user");
-        navigate("/");
+        removeItem("adminSession");
+        navigate("/admin");
     };
 
-    const handleSubmitAnswerClick = async (e, idx) => {
-        e.preventDefault();
-
-        const submit = await prettyAxios(
-            api.post(`/sessions/submit/${session.id}/${user.id}`, {
-                choiceIndex: idx,
-            })
+    const handleStartClick = async (e) => {
+        const start = await prettyAxios(
+            api.post(`/sessions/start/${session.id}`)
         );
-
-        if (submit.isError) {
-            return alert(submit.data.message);
+        if (start.isError) {
+            return alert(start.data.message);
         }
         const _session = await prettyAxios(api.get(`/sessions/${session.id}`));
         if (_session.isError) {
             return alert(_session.data.message);
         }
-        setItem("session", _session.data.data);
+        setItem("adminSession", _session.data.data);
+        setSession(_session.data.data);
+    };
+
+    const handleFinishClick = async (e) => {
+        const finish = await prettyAxios(
+            api.post(`/sessions/finish_question/${session.id}`)
+        );
+        if (finish.isError) {
+            return alert(finish.data.message);
+        }
+        const _session = await prettyAxios(api.get(`/sessions/${session.id}`));
+        if (_session.isError) {
+            return alert(_session.data.message);
+        }
+        setItem("adminSession", _session.data.data);
+        setSession(_session.data.data);
+    };
+
+    const handleNextClick = async (e) => {
+        const next = await prettyAxios(
+            api.post(`/sessions/next_question/${session.id}`)
+        );
+        if (next.isError) {
+            return alert(next.data.message);
+        }
+        const _session = await prettyAxios(api.get(`/sessions/${session.id}`));
+        if (_session.isError) {
+            return alert(_session.data.message);
+        }
+        setItem("adminSession", _session.data.data);
         setSession(_session.data.data);
     };
 
@@ -54,16 +77,15 @@ export default function PlayPage() {
                 alert(_session.data.message);
                 return clearInterval(interval);
             }
-            setItem("session", _session.data.data);
+            setItem("adminSession", _session.data.data);
             setSession(_session.data.data);
         }, 3000);
         return () => clearInterval(interval);
     }, []);
 
-    if (!session || !user) {
+    if (!session) {
         return <></>;
     }
-
     return (
         <div className="p-8">
             <div className="flex justify-between items-start mb-8">
@@ -72,15 +94,14 @@ export default function PlayPage() {
                         {session.category.name}
                     </h1>
                     <h1 className="text-4xl">รหัสห้อง: {session.id}</h1>
-                    <h1>Username: {user.username}</h1>
                     <p>Status: {session.status}</p>
                 </div>
                 <button
                     type="button"
                     className="underline text-red-500"
-                    onClick={handleLeaveRoomClick}
+                    onClick={handleDeleteRoomClick}
                 >
-                    ออกจากห้อง
+                    ลบห้อง
                 </button>
             </div>
 
@@ -102,6 +123,14 @@ export default function PlayPage() {
                             </p>
                         )}
                     </div>
+
+                    <button
+                        type="button"
+                        className="underline"
+                        onClick={handleStartClick}
+                    >
+                        เริ่มเกมเลย
+                    </button>
                 </>
             )}
 
@@ -128,30 +157,74 @@ export default function PlayPage() {
                             </h1>
                         )}
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+
+                    <div className="grid grid-cols-2 gap-4 mb-8">
                         {session.category.questions[
                             session.currentQuestionIndex
                         ].choices.map((c, idx) => (
-                            <button
-                                type="button"
+                            <div
                                 key={idx}
                                 className={`border border-black/20 p-6 ${
-                                    session.users
-                                        .find((u) => u.id === user.id)
-                                        .answers.find(
-                                            (a) =>
-                                                a.questionIndex ===
-                                                session.currentQuestionIndex
-                                        )?.choiceIndex === idx
-                                        ? "bg-blue-200"
+                                    session.choiceStatus === "SUCCESS" &&
+                                    c.correct
+                                        ? "bg-green-200"
                                         : ""
                                 }`}
-                                onClick={(e) => handleSubmitAnswerClick(e, idx)}
                             >
                                 <h1 className="text-xl">{c.title}</h1>
-                            </button>
+                                {session.choiceStatus === "SUCCESS" && (
+                                    <p className="text-black/40">
+                                        มีคนตอบข้อนี้{" "}
+                                        {
+                                            session.users.filter(
+                                                (user) =>
+                                                    !!user.answers.find(
+                                                        (a) =>
+                                                            a.questionIndex ===
+                                                                session.currentQuestionIndex &&
+                                                            a.choiceIndex ===
+                                                                idx
+                                                    )
+                                            ).length
+                                        }{" "}
+                                        คน
+                                    </p>
+                                )}
+                            </div>
                         ))}
                     </div>
+                    <h1 className="text-xl">
+                        มีคนตอบคำถามแล้ว{" "}
+                        {
+                            session.users.filter(
+                                (u) =>
+                                    !!u.answers.find(
+                                        (a) =>
+                                            a.questionIndex ===
+                                            session.currentQuestionIndex
+                                    )
+                            ).length
+                        }
+                        /{session.users.length} คน
+                    </h1>
+                    {session.choiceStatus === "PLAYING" && (
+                        <button
+                            type="button"
+                            className="underline"
+                            onClick={handleFinishClick}
+                        >
+                            เฉลยเลย
+                        </button>
+                    )}
+                    {session.choiceStatus === "SUCCESS" && (
+                        <button
+                            type="button"
+                            className="underline"
+                            onClick={handleNextClick}
+                        >
+                            ไปยังข้อถัดไป
+                        </button>
+                    )}
                 </>
             )}
 
